@@ -1,0 +1,150 @@
+Laaja harjoitustyö: Labyrintti ja 3d-visualisointi
+  Paul Wagner
+
+
+Ohjelman käytöstä:
+
+  Ohjelma käynnistyy schemestä (emacsin kautta tai komentoriviltä)
+komennoilla (load "main.scm") ja (run). Tämän jälkeen ohjelma kysyy
+haluttua väritilaa, (a: cyan-gray / b: green-blue-gray) joka valitaan
+antamalla tilaa vastaava kirjain. Cyan-gray on paremman näköinen,
+suosittelen sitä. Seuraavaksi annetaan labyrintin mitat. Alle 10x10
+-labyrinteissä ohjelma toimii mukavan pehmeästi, yli 30x30
+-labyrinttejä tuskin kannattaa pelata, tökkivät jo aika pahasti. (Scheme
+tuntuu hidastuvan jo pelkän suuren tietomäärän passiivisesta
+olemassaolosta.) Ikkunan oletuskoko on yli tuon suositellun
+800x600, mutta ohjelma sopeutuu uuteen kokoon automaattisesti, mikäli
+ikkuna ei mahdu näytölle.
+  Labyrintissä liikutaan ohjelman alussa kertomien näppäinkomentojen
+avulla. Ikkunan koon muuttaminen tai ratkaisureitin näyttö/piilotus
+aiheuttaa 2d-moodissa tai viimeistään siihen siirryttäessä taustojen
+uudelleenlaskennan, mikä on aika hidasta.. Maalipiste on merkitty
+valolla.
+
+
+
+
+Ohjelman toiminnasta:
+
+  Tiedostot (niiden sisäiset funktiot) jakautuvat seuraaviin
+  neljään pääryhmään:
+
+    Yleiset apufunktiot:
+      scheme-extensions.scm
+      math.scm
+      ticker.scm
+          ; ticker -olio lähettää aina näytön päivittyessä
+          ; tick! -signaalin kaikille sitä pyytäneille
+          ; (locatorit, kamera, ..)
+      enws-dirs.scm                     ; ilmansuunnat<->rad -suunnat
+      lights.scm                        ; valaistus ja valonlähteet
+      locator.scm
+          ; olio, joka kuvaa fyysistä sijaintia ja liiketilaa
+          ; labyrintissa.
+
+    Ohjelman runko:   (tarkempi selostus alla)
+      main.scm
+      user-interface.scm
+      player.scm
+      camera.scm
+          ; Kytketty pelaajaan, eli siirtyy aina tick! -signaalin
+          ; saadessaan pelaajan sijaintipisteeseen, paitsi 2d-moodissa,
+          ; jolloin kamera on paikallaan labyrintin yläpuolella.
+
+    Labyrintti:
+      maze.scm
+          ; labyrintti kokonaisuutena. Sisältää myös grafiikkaosalle
+          ; annettavan rajapinnan (maze-interface) ja
+          ; dynamic-lights-managerin.
+      maze_maze-map.scm
+          ; karttaolio, huolehtii yksittäisistä huoneista, sekä
+          ; liikkumattomien valonlähteiden vaikutuksesta huoneisiin.
+      maze_maze-map_cell.scm
+          ; yksittäinen huone. Tietää itä- ja pohjoisseiniensä tilan,
+          ; sekä ylläpitää ja jakaa tietoa sisäisestä valaistustilastaan.
+      maze_generator.scm
+      maze_maze-solver.scm
+
+    Grafiikka:
+      realtime-and-cached-image-mixer.scm
+          ; hoitaa valmiiden taustakuvien laskennan ja niiden
+          ; yhteensovittamisen reaaliaikaisen piirron kanssa.
+      3d-vis.scm
+          ; Piirtää kuvasta halutut elementit xdraw-olion senhetkiseen
+          ; draw-targettiin, kuvakulma kameraolion mukaan.
+      3d-vis_draw-stack.scm
+          ; lifo-pino, johon ladotaan ensin seiniä kamerasta poispäin
+          ; edeten, kunnes kaikki kameran näkemät suunnat ovat
+          ; peittyneet seinistä.
+      3d-vis_fill-draw-stack.scm
+          ; täyttää piirtopinon
+      3d-vis_execute-draw-stack.scm
+          ; projisoi ja piirtää piirtopinon sisällön annetun xdraw-olion
+          ; senhetkiseen draw-targettiin.
+
+
+Ohjelma käynnistyy main -proseduurista (main.scm), joka alustaa
+vakioita, luo olioita (maze, ticker, player, camera) ja kysyy
+käyttäjältä asetuksia.
+  Tämän jälkeen suoritus siirtyy user-interface -proseduuriin, joka avaa
+ikkunan, alustaa image-mixerin ja jää silmukkaan, jossa:
+        -luetaan näppäinsyötettä
+        -käskytetään olioita syötteen mukaan
+                (lähinnä player-, camera- ja image-mixer -olioita)
+        -käsketään image-mixeriä päivittämään näyttö
+
+  Kamera seuraa sisäisen locatorin mukana liikkuvaa Player -oliota,
+mikäli kuvakulma on 3d. Kamera sisältää lisäksi erittäin keskeisen
+olion, h-phasen, jonka arvoa käytetään jatkuvasti grafiikkapuolella.
+H-phase kuvaa kameran sijaintivaihetta 3d<->2d -siirtymässä;
+  arvo 0 = 3d-moodi, kamera labyrintin sisällä
+     0.5 = siirtymän puolivälissä
+       1 = 2d-moodi, kamera labyrintin yläpuolella, katse suunnattuna
+           alas.
+Kuvakulmaa vaihdettaessa h-phase liukuu välin 0-0.5 bezier-käyrää
+pitkin, ja välin 0.5-1 em. käyrän jatkeena olevaa suoraa pitkin.
+Suoraa pitkin siirryttäessä ja 2d-moodissa (kun 0.5 <= h-phase <=1)
+käytetään valmiiksipiirrettyjä taustoja. (image-mixerin tehtävä)
+
+  3d-vis -funktio luo aina uuden piirtopinon, täyttää sen
+fill-draw-stackin avulla ja piirtää sisällön execute-draw-stackilla.
+Nämä oliot käyttävät yhteistä polygon -tietorakennetta, joka kuvaa
+yksittäistä monikulmiota. Fill-draw-stack latoo pinoon polygon
+-rakenteita kameran läheltä aloittaen niin kauan, kunnes piirtopino
+ilmoittaa kaikkien suuntien olevan peitossa. Execute-draw-stack alkaa
+purkaa pinoa päältä, projisoiden ja piirtäen yksitellen jokaisen
+monikulmion.
+
+  maze -olio sisältää grafiikkapuolelle annettavan rajapinnan,
+maze-map -olion ja dynamic-lights-managerin, joka huolehtii
+liikkuvista valonlähteistä. Lisäksi tästä oliosta kutsutaan
+maze-generatoria ja -solveria. Grafiikkarajapinnan metodeista löytyy
+mm. wall-at? ja size -kyselyt, ratkaisureitin näyttö/piilotus,
+yksittäisen huoneen valaistustilanteen kysely (kysymys välitetään
+edelleen huone-oliolle maze-mapin kautta) ja pääsy
+dynamic-lights-manageriin.
+
+  dynamic-lights-manager luo pyydettäessä uusia liikkuvia
+valonlähteitä (dynamic-light), ja ottaa vastaan dynamic-light
+-olioilta tulevia sijainninmuutosilmoituksia, ja päivittää jokaisen
+liikkuneen valonlähteen uuden sijainnin maze-mappiin. (maze-map
+ymmärtää vain pysähdyksissä olevia valoja, joten
+dynamic-lights-manager poistaa ja asettaa valon uuteen paikkaan
+maze-mapissa aina valon liikahtaessa)
+
+  dynamic-light -oliot sisältävät locator -olion, ja ilmoittavat aina
+sijaintinsa muuttuessa (sisäisen locatorin sijainnin muuttuessa)
+dynamic-lights-managerille uuden sijaintinsa.
+
+  maze-map -olio sisältää huone-oliot (cell) ja tiedot kaikista
+liikkumattomista valonlähteistä, joiden vaikutuksen jakautuminen eri
+huoneisiin lasketaan täällä.
+
+  cell -olio sisältää tiedot itä- ja pohjoisseiniensä olemassaolosta,
+sekä sisäisen valaistustilanteen. Eri valojen vaikutuksen yhdistäminen
+hoidetaan täällä.
+
+  Liikuvan valon lisäys (soihdun heitto) tapahtuu maze-interfacen kautta
+dynamic-lights-managerin new-light-source! -metodilla. Ratkaisureitin
+valaisu tapahtuu staattisilla valoilla (maze-map.add-light-source!),
+joissa on värikierto (camera.color-cycle-phase).
